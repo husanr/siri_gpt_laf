@@ -25,9 +25,9 @@
 ```js
 // siri.js
 // 引入必要的库
+// 引入必要的库
 import cloud from '@lafjs/cloud';
 const { v4: uuidv4 } = require('uuid');
-const axios = require('axios');
 
 // 创建数据库连接
 const db = cloud.database();
@@ -35,9 +35,7 @@ const ChatTable = db.collection('siri')
 
 
 // 设置key和模型
-const OPENAI_KEY = process.env.OPENAI_KEY || "YOUR API-KEY";
-const OPENAI_MODEL = process.env.MODEL || "gpt-3.5-turbo";
-const MAX_MESSAGES_PER_CHAT = 40;
+const OPENAI_KEY = process.env.OPENAI_KEY || "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";
 
 
 export async function main(params, context) {
@@ -47,79 +45,56 @@ export async function main(params, context) {
   // 创建一个id
   const chatId = cid ? cid : uuidv4();
 
-  // 保存用户问题
-  await ChatTable.add({ chatId, role: 'user', content: question });
+  // 获取上下文 id
+  const chats = await ChatTable.where({
+    chatId
+  }).orderBy("createdAt", "desc").getOne();
 
-  // 获取历史信息
-  const chats = await ChatTable
-    .where({ chatId })
-    .orderBy("createdAt", "desc").limit(MAX_MESSAGES_PER_CHAT).get();
+  console.log("获取上下文", chats)
 
-  // 组装问题prompt
-  const messages = [
-    { role: 'system', content: 'You are a helpful assistant.' },
-    ...chats.data.map(one => ({ role: one.role, content: one.content })),
-  ];
+  const parentId = chats?.data?.parentMessageId
 
-  const data = JSON.stringify({
-    model: OPENAI_MODEL,
-    messages: messages
-  });
-
-  const config: any = {
-    method: 'post',
-    maxBodyLength: Infinity,
-    url: 'https://api.openai.com/v1/chat/completions',
-    headers: {
-      Authorization: `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    data: data,
-    timeout: 50000
-  };
+  const { ChatGPTAPI } = await import('chatgpt')
+  let api = cloud.shared.get('api')
+  if (!api) {
+    api = new ChatGPTAPI({ apiKey: OPENAI_KEY })
+    cloud.shared.set('api', api)
+  }
 
   try {
-    // 发送请求
-    const completion = await axios(config);
 
-    const responseMessage = completion.data.choices[0].message;
+    // 如果有上下文 id，就带上
+    let res;
+
+    if (parentId) {
+      res = await api.sendMessage(question, { parentMessageId: parentId })
+    } else {
+      res = await api.sendMessage(question)
+    }
+    console.log("res", res)
+    const responseMessage = res.detail.choices[0].message;
 
     // 保存返回结果
-    await ChatTable.add({ chatId, ...responseMessage });
+    await ChatTable.add({ chatId, ...responseMessage, parentMessageId: res.parentMessageId });
 
     // 返回结果
     return { reply: responseMessage.content, cid: chatId };
 
   } catch (error) {
     // 打印错误日志
-    console.log('error', error.response || error);
-
-
-    let errorMessage;
-
-    // 处理返回报错信息
-    if (error.response) {
-      const { status, statusText, data } = error.response;
-
-      if (status === 401) {
-        errorMessage = 'Unauthorized: Invalid OpenAI API key, please check your API key in the AirCode Environments tab.';
-      } else if (data.error && data.error.message) {
-        errorMessage = data.error.message;
-      } else {
-        errorMessage = `Request failed with status code ${status}: ${statusText}`;
+    console.log('error', error);
+    if (error.statusCode === 429) {
+      return {
+        error: '问题太多了，我有点眩晕，请稍后再试'
       }
-    } else if (error.request) {
-      errorMessage = 'No response received from the server';
-    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      errorMessage = `Network error: ${error.message}`;
-    } else {
-      errorMessage = `Request setup error: ${error.message}`;
     }
-    return { error: errorMessage };
+    return {
+      error: "问题太难了 出错了. (uДu〃).",
+    }
   }
 };
 ```
-最新代码可见：https://github.com/husanr/siri_gpt_laf
+最新代码可见：https://husanr.github.io/views/ChatGPT/siri
 
 #### 3. 添加快捷指令
 - 打开以下链接，添加快捷指令。
