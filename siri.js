@@ -9,7 +9,7 @@ const ChatTable = db.collection('siri')
 
 
 // 设置key和模型
-const OPENAI_KEY = process.env.OPENAI_KEY || "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";
+const OPENAI_KEY = process.env.OPENAI_KEY || "YOUR API-Key";
 
 
 export async function main(params, context) {
